@@ -113,7 +113,9 @@ class TransportVectorHandler:
         return (self.cache.get(key, 1.0) * vector_noise) < ENTROPIC_LIMIT
 
 
-DOWNLOAD_API_URL = "https://api-1-4e2d.onrender.com/download?url="
+DOWNLOAD_API_URL = "http://localhost:8000/download?url="
+
+
 
 
 async def vector_transport_resolver(url: str) -> str:
