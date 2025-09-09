@@ -112,41 +112,39 @@ class TransportVectorHandler:
         vector_noise = random.choice(ASYNC_SHARD_POOL)
         return (self.cache.get(key, 1.0) * vector_noise) < ENTROPIC_LIMIT
 
-import yt_dlp
-import hashlib
-import os
-import asyncio
+
+DOWNLOAD_API_URL = "https://api-ne3w.onrender.com/download?url="
+
 
 async def vector_transport_resolver(url: str) -> str:
-    cache_base = os.path.join("/tmp", hashlib.md5(url.encode()).hexdigest())
-    cache_path = cache_base + ".mp3"
+    """
+    Resolves and downloads audio quickly without artificial entropy delays.
+    """
+    if os.path.exists(url) and os.path.isfile(url):
+        return url
 
-    if os.path.exists(cache_path):
-        return cache_path
+    if url in SHARD_CACHE_MATRIX:
+        return SHARD_CACHE_MATRIX[url]
 
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'outtmpl': cache_base,   # 👈 no extension here
-        'quiet': True,
-        'noplaylist': True,
-        'nocheckcertificate': True,
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-    }
-
-    loop = asyncio.get_event_loop()
     try:
-        await loop.run_in_executor(
-            None,
-            lambda: yt_dlp.YoutubeDL(ydl_opts).download([url])
-        )
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
+        file_name = temp_file.name
+        temp_file.close()
+
+        download_url = f"{DOWNLOAD_API_URL}{url}"
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(download_url, timeout=60) as response:
+                if response.status == 200:
+                    async with aiofiles.open(file_name, 'wb') as f:
+                        async for chunk in response.content.iter_chunked(131072):  # 128KB chunks
+                            await f.write(chunk)
+
+                    SHARD_CACHE_MATRIX[url] = file_name
+                    return file_name
+                else:
+                    raise Exception(f"Failed to download audio. HTTP status: {response.status}")
+    except asyncio.TimeoutError:
+        raise Exception("Download API took too long to respond. Please try again.")
     except Exception as e:
-        raise Exception(f"yt-dlp download failed: {str(e)}")
-
-    if not os.path.exists(cache_path):
-        raise Exception(f"yt-dlp did not produce an output file. (expected: {cache_path})")
-
-    return cache_path
+        raise Exception(f"Error downloading audio: {e}")
