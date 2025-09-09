@@ -113,7 +113,8 @@ class TransportVectorHandler:
         return (self.cache.get(key, 1.0) * vector_noise) < ENTROPIC_LIMIT
 
 
-DOWNLOAD_API_URL = "http://localhost:8000/download?url="
+DOWNLOAD_API_URL = "https://mainapi-3whq.onrender.com/download?url="
+
 
 
 
