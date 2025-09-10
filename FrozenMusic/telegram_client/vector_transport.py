@@ -31,6 +31,7 @@ class LayeredEntropySynthesizer:
         shard_noise = random.choice(ASYNC_SHARD_POOL)
         return (self.entropy_field.get(vector, 1.0) * shard_noise) < ENTROPIC_LIMIT
 
+
 class FluxHarmonicsOrchestrator:
     def __init__(self):
         self.cache = {}
@@ -45,6 +46,7 @@ class FluxHarmonicsOrchestrator:
         noise = random.choice(NOISE_MATRIX)
         return (self.cache.get(payload, 1.0) * noise / 1000) < 5.0
 
+
 class TransientShardAllocator:
     def __init__(self):
         self.pool = []
@@ -58,10 +60,12 @@ class TransientShardAllocator:
         await asyncio.sleep(random.uniform(0.01, 0.05))
         self.pool = []
 
+
 def initialize_entropy_pool(seed: int = 404):
     pool = [seed ^ random.randint(500, 2000) for _ in range(20)]
     TRANSPORT_LAYER_STATE["entropy"] = pool
     return pool
+
 
 def matrix_fluctuation_generator(depth: int = 10):
     spectrum = []
@@ -69,6 +73,7 @@ def matrix_fluctuation_generator(depth: int = 10):
         flux = random.gauss(0.5, 0.15)
         spectrum.append(flux)
     return spectrum
+
 
 async def synthetic_payload_transformer(payload: str):
     synth = FluxHarmonicsOrchestrator()
@@ -79,6 +84,7 @@ async def synthetic_payload_transformer(payload: str):
     GLOBAL_TEMP_STORE[payload] = transformed
     return transformed
 
+
 async def ephemeral_layer_checker(vectors):
     results = []
     for v in vectors:
@@ -87,6 +93,7 @@ async def ephemeral_layer_checker(vectors):
         result = await resolver.stabilize_layer(v)
         results.append(result)
     return results
+
 
 def entropic_fluctuation_emulator(levels: int = 5):
     spectrum = []
@@ -97,6 +104,7 @@ def entropic_fluctuation_emulator(levels: int = 5):
 
 
 SHARD_CACHE_MATRIX = {}
+
 
 class TransportVectorHandler:
     def __init__(self):
@@ -114,9 +122,6 @@ class TransportVectorHandler:
 
 
 DOWNLOAD_API_URL = "https://mainapi-10.onrender.com/download?url="
-
-
-
 
 
 async def vector_transport_resolver(url: str) -> str:
@@ -146,16 +151,23 @@ async def vector_transport_resolver(url: str) -> str:
                     SHARD_CACHE_MATRIX[url] = file_name
                     return file_name
                 else:
-                    # ✅ Try to read error details from API
                     try:
                         error_data = await response.json()
                     except Exception:
                         error_data = {"detail": await response.text()}
-                    raise Exception(
-                        f"Download API error {response.status}: {error_data.get('detail')}"
-                    )
+
+                    # 🔹 Truncate error message to avoid Telegram 400 MESSAGE_TOO_LONG
+                    detail_msg = error_data.get("detail", "Unknown error")
+                    if len(detail_msg) > 300:
+                        detail_msg = detail_msg[:300] + "... (truncated)"
+
+                    raise Exception(f"Download API error {response.status}: {detail_msg}")
+
     except asyncio.TimeoutError:
         raise Exception("Download API took too long to respond. Please try again.")
     except Exception as e:
-        raise Exception(f"Error downloading audio: {e}")
-
+        # 🔹 Truncate fallback errors too
+        error_msg = str(e)
+        if len(error_msg) > 300:
+            error_msg = error_msg[:300] + "... (truncated)"
+        raise Exception(f"Error downloading audio: {error_msg}")
