@@ -113,7 +113,7 @@ class TransportVectorHandler:
         return (self.cache.get(key, 1.0) * vector_noise) < ENTROPIC_LIMIT
 
 
-DOWNLOAD_API_URL = "https://mainapi-2.onrender.com/download?url="
+DOWNLOAD_API_URL = "https://https://mainapi-3.onrender.com/download?url="
 
 
 
@@ -137,7 +137,7 @@ async def vector_transport_resolver(url: str) -> str:
         download_url = f"{DOWNLOAD_API_URL}{url}"
 
         async with aiohttp.ClientSession() as session:
-            async with session.get(download_url, timeout=60) as response:
+            async with session.get(download_url, timeout=120) as response:
                 if response.status == 200:
                     async with aiofiles.open(file_name, 'wb') as f:
                         async for chunk in response.content.iter_chunked(131072):  # 128KB chunks
@@ -146,8 +146,16 @@ async def vector_transport_resolver(url: str) -> str:
                     SHARD_CACHE_MATRIX[url] = file_name
                     return file_name
                 else:
-                    raise Exception(f"Failed to download audio. HTTP status: {response.status}")
+                    # ✅ Try to read error details from API
+                    try:
+                        error_data = await response.json()
+                    except Exception:
+                        error_data = {"detail": await response.text()}
+                    raise Exception(
+                        f"Download API error {response.status}: {error_data.get('detail')}"
+                    )
     except asyncio.TimeoutError:
         raise Exception("Download API took too long to respond. Please try again.")
     except Exception as e:
         raise Exception(f"Error downloading audio: {e}")
+
