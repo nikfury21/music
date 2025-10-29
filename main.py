@@ -326,55 +326,71 @@ def iso8601_to_human_readable(iso_duration):
     except Exception as e:
         return "Unknown duration"
 
-async def fetch_youtube_link(query):
-    try:
-        url = f"https://teenage-liz-frozzennbotss-61567ab4.koyeb.app/search?title={query}"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    # Check if the API response contains a playlist
-                    if "playlist" in data:
-                        return data
-                    else:
-                        return (
-                            data.get("link"),
-                            data.get("title"),
-                            data.get("duration"),
-                            data.get("thumbnail")
-                        )
-                else:
-                    raise Exception(f"API returned status code {response.status}")
-    except Exception as e:
-        raise Exception(f"Failed to fetch YouTube link: {str(e)}")
+import requests
+import os
+from yt_dlp import YoutubeDL
 
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 
-    
-async def fetch_youtube_link_backup(query):
-    if not BACKUP_SEARCH_API_URL:
-        raise Exception("Backup Search API URL not configured")
-    # Build the correct URL:
-    backup_url = (
-        f"{BACKUP_SEARCH_API_URL.rstrip('/')}"
-        f"/search?title={urllib.parse.quote(query)}"
+async def fetch_youtube_link(query: str):
+    """
+    Use YouTube Data API v3 to find top 1 song.
+    """
+    if not YOUTUBE_API_KEY:
+        raise Exception("Missing YOUTUBE_API_KEY environment variable")
+
+    url = (
+        "https://www.googleapis.com/youtube/v3/search"
+        f"?part=snippet&type=video&maxResults=1&q={query}&key={YOUTUBE_API_KEY}"
     )
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(backup_url, timeout=30) as resp:
-                if resp.status != 200:
-                    raise Exception(f"Backup API returned status {resp.status}")
-                data = await resp.json()
-                # Mirror primary API’s return:
-                if "playlist" in data:
-                    return data
-                return (
-                    data.get("link"),
-                    data.get("title"),
-                    data.get("duration"),
-                    data.get("thumbnail")
-                )
-    except Exception as e:
-        raise Exception(f"Backup Search API error: {e}")
+    data = requests.get(url, timeout=10).json()
+
+    if "items" not in data or not data["items"]:
+        raise Exception("No results found.")
+
+    item = data["items"][0]
+    vid = item["id"]["videoId"]
+    title = item["snippet"]["title"]
+    thumb = item["snippet"]["thumbnails"]["high"]["url"]
+
+    # Now fetch duration from Videos API
+    details_url = f"https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id={vid}&key={YOUTUBE_API_KEY}"
+    details = requests.get(details_url, timeout=10).json()
+    duration = "PT0M0S"
+    if "items" in details and details["items"]:
+        duration = details["items"][0]["contentDetails"]["duration"]
+
+    return (f"https://www.youtube.com/watch?v={vid}", title, duration, thumb)
+
+
+async def fetch_youtube_link_backup(query: str):
+    """
+    Backup = Same API, just return top 3 instead of 1.
+    """
+    if not YOUTUBE_API_KEY:
+        raise Exception("Missing YOUTUBE_API_KEY environment variable")
+
+    url = (
+        "https://www.googleapis.com/youtube/v3/search"
+        f"?part=snippet&type=video&maxResults=3&q={query}&key={YOUTUBE_API_KEY}"
+    )
+    data = requests.get(url, timeout=10).json()
+    if "items" not in data or not data["items"]:
+        raise Exception("No results found.")
+
+    item = data["items"][0]
+    vid = item["id"]["videoId"]
+    title = item["snippet"]["title"]
+    thumb = item["snippet"]["thumbnails"]["high"]["url"]
+
+    details_url = f"https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id={vid}&key={YOUTUBE_API_KEY}"
+    details = requests.get(details_url, timeout=10).json()
+    duration = "PT0M0S"
+    if "items" in details and details["items"]:
+        duration = details["items"][0]["contentDetails"]["duration"]
+
+    return (f"https://www.youtube.com/watch?v={vid}", title, duration, thumb)
+
     
 BOT_NAME = os.environ.get("BOT_NAME", "Frozen Music")
 BOT_LINK = os.environ.get("BOT_LINK", "https://t.me/vcmusiclubot")
@@ -1592,6 +1608,7 @@ async def main():
     print("music bot started")
 
     await bot.idle()
+
 
 
 
