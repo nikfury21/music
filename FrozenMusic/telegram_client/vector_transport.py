@@ -17,7 +17,7 @@ YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 async def youtube_search(query: str):
     """
     Search YouTube using the official YouTube Data API v3.
-    Returns a list of video dictionaries with title, videoId, link, and thumbnail.
+    Returns a dict with 'items' key to stay compatible with old bot code.
     """
     if not YOUTUBE_API_KEY:
         raise Exception("Missing YOUTUBE_API_KEY in environment variables")
@@ -29,18 +29,21 @@ async def youtube_search(query: str):
     )
 
     data = requests.get(url, timeout=10).json()
-    results = []
+    items = []
     for item in data.get("items", []):
         vid = item["id"]["videoId"]
         title = item["snippet"]["title"]
         thumb = item["snippet"]["thumbnails"]["high"]["url"]
-        results.append({
+        items.append({
             "videoId": vid,
             "title": title,
             "link": f"https://www.youtube.com/watch?v={vid}",
             "thumbnail": thumb,
         })
-    return results
+
+    # 🔹 Wrap inside a dict for backward compatibility
+    return {"items": items}
+
 
 
 async def vector_transport_resolver(url: str) -> str:
