@@ -5,13 +5,16 @@ import tempfile
 import random
 import string
 import requests
-from yt_dlp import YoutubeDL
+import aiohttp
 
 # 🔹 Global cache
 SHARD_CACHE_MATRIX = {}
 
 # 🔹 Get your YouTube Data API key safely from environment variables
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
+
+# 🔹 Your deployed proxy (change to your own Render URL)
+AUDIO_PROXY_URL = "https://ytproxy-x9hd.onrender.com/audio"  # ✅ your working Render URL
 
 
 async def youtube_search(query: str):
@@ -24,7 +27,7 @@ async def youtube_search(query: str):
 
     url = (
         "https://www.googleapis.com/youtube/v3/search"
-        f"?part=snippet&type=video&maxResults=10"
+        f"?part=snippet&type=video&maxResults=10&type=video"
         f"&q={query}&key={YOUTUBE_API_KEY}"
     )
 
@@ -41,14 +44,12 @@ async def youtube_search(query: str):
             "thumbnail": thumb,
         })
 
-    # 🔹 Wrap inside a dict for backward compatibility
     return {"items": items}
-
 
 
 async def vector_transport_resolver(url: str) -> str:
     """
-    Resolves and downloads audio directly from YouTube using yt-dlp (fast + reliable).
+    Downloads audio via your deployed yt-dlp proxy API (no cookies, no login needed).
     """
     if os.path.exists(url) and os.path.isfile(url):
         return url
@@ -56,43 +57,23 @@ async def vector_transport_resolver(url: str) -> str:
     if url in SHARD_CACHE_MATRIX:
         return SHARD_CACHE_MATRIX[url]
 
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+    file_path = temp_file.name
+    temp_file.close()
+
     try:
-        # Extract YouTube video ID
-        if "youtube.com/watch?v=" in url:
-            video_id = url.split("watch?v=")[-1].split("&")[0]
-        elif "youtu.be/" in url:
-            video_id = url.split("youtu.be/")[-1].split("?")[0]
-        else:
-            raise Exception("Unsupported URL, not a valid YouTube link")
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{AUDIO_PROXY_URL}?url={url}", timeout=120) as resp:
+                if resp.status != 200:
+                    text = await resp.text()
+                    raise Exception(f"Proxy returned {resp.status}: {text}")
 
-        # Prepare output path
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-        file_name = temp_file.name
-        temp_file.close()
+                async with aiofiles.open(file_path, "wb") as f:
+                    async for chunk in resp.content.iter_chunked(131072):
+                        await f.write(chunk)
 
-        # yt-dlp options
-        ydl_opts = {
-            "format": "bestaudio/best",
-            "outtmpl": file_name,
-            "quiet": True,
-            "noplaylist": True,
-            "postprocessors": [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "192",
-                }
-            ],
-        }
-
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, lambda: YoutubeDL(ydl_opts).download([url]))
-
-        if not os.path.exists(file_name):
-            raise Exception("yt-dlp failed to download audio")
-
-        SHARD_CACHE_MATRIX[url] = file_name
-        return file_name
+        SHARD_CACHE_MATRIX[url] = file_path
+        return file_path
 
     except Exception as e:
-        raise Exception(f"Error downloading audio: {e}")
+        raise Exception(f"Audio proxy error: {e}")
