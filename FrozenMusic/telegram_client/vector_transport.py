@@ -11,7 +11,7 @@ import string
 SHARD_CACHE_MATRIX = {}
 
 # 🔹 Replace this with your deployed Piped instance URL (no cookies needed)
-API_URL = "https://frozen-pv46.onrender.com/streams/"
+API_URL = "https://piped-rte0.onrender.com"
 
 
 async def vector_transport_resolver(url: str) -> str:
