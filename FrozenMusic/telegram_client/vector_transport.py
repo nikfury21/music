@@ -1,22 +1,51 @@
-import aiohttp
 import aiofiles
 import asyncio
 import os
 import tempfile
 import random
 import string
-
+import requests
+from yt_dlp import YoutubeDL
 
 # 🔹 Global cache
 SHARD_CACHE_MATRIX = {}
 
-# 🔹 Replace this with your deployed Piped instance URL (no cookies needed)
-API_URL = "https://piped-rte0.onrender.com"
+# 🔹 Get your YouTube Data API key safely from environment variables
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
+
+
+async def youtube_search(query: str):
+    """
+    Search YouTube using the official YouTube Data API v3.
+    Returns a list of video dictionaries with title, videoId, link, and thumbnail.
+    """
+    if not YOUTUBE_API_KEY:
+        raise Exception("Missing YOUTUBE_API_KEY in environment variables")
+
+    url = (
+        "https://www.googleapis.com/youtube/v3/search"
+        f"?part=snippet&type=video&maxResults=10"
+        f"&q={query}&key={YOUTUBE_API_KEY}"
+    )
+
+    data = requests.get(url, timeout=10).json()
+    results = []
+    for item in data.get("items", []):
+        vid = item["id"]["videoId"]
+        title = item["snippet"]["title"]
+        thumb = item["snippet"]["thumbnails"]["high"]["url"]
+        results.append({
+            "videoId": vid,
+            "title": title,
+            "link": f"https://www.youtube.com/watch?v={vid}",
+            "thumbnail": thumb,
+        })
+    return results
 
 
 async def vector_transport_resolver(url: str) -> str:
     """
-    Resolves and downloads audio quickly using Piped API (no yt-dlp).
+    Resolves and downloads audio directly from YouTube using yt-dlp (fast + reliable).
     """
     if os.path.exists(url) and os.path.isfile(url):
         return url
@@ -25,7 +54,7 @@ async def vector_transport_resolver(url: str) -> str:
         return SHARD_CACHE_MATRIX[url]
 
     try:
-        # Extract video ID from YouTube link
+        # Extract YouTube video ID
         if "youtube.com/watch?v=" in url:
             video_id = url.split("watch?v=")[-1].split("&")[0]
         elif "youtu.be/" in url:
@@ -33,44 +62,34 @@ async def vector_transport_resolver(url: str) -> str:
         else:
             raise Exception("Unsupported URL, not a valid YouTube link")
 
-        # Query your Piped instance
-        api_url = f"{PIPED_API_URL}{video_id}"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(api_url, timeout=60) as response:
-                if response.status != 200:
-                    raise Exception(f"Piped API error {response.status}: {await response.text()}")
-                data = await response.json()
-
-        # Pick best audio format (fallback if missing)
-        audio_streams = data.get("audioStreams", [])
-        if not audio_streams:
-            raise Exception("No audio streams available for this video")
-
-        # Sort by bitrate, choose highest
-        best_audio = max(audio_streams, key=lambda x: x.get("bitrate", 0))
-        download_url = best_audio["url"]
-
-        # Save to a temp file
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
+        # Prepare output path
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
         file_name = temp_file.name
         temp_file.close()
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(download_url, timeout=120) as resp:
-                if resp.status == 200:
-                    async with aiofiles.open(file_name, 'wb') as f:
-                        async for chunk in resp.content.iter_chunked(131072):
-                            await f.write(chunk)
+        # yt-dlp options
+        ydl_opts = {
+            "format": "bestaudio/best",
+            "outtmpl": file_name,
+            "quiet": True,
+            "noplaylist": True,
+            "postprocessors": [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "192",
+                }
+            ],
+        }
 
-                    SHARD_CACHE_MATRIX[url] = file_name
-                    return file_name
-                else:
-                    raise Exception(f"Error fetching audio file: HTTP {resp.status}")
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, lambda: YoutubeDL(ydl_opts).download([url]))
 
-    except asyncio.TimeoutError:
-        raise Exception("Piped API took too long to respond. Please try again.")
+        if not os.path.exists(file_name):
+            raise Exception("yt-dlp failed to download audio")
+
+        SHARD_CACHE_MATRIX[url] = file_name
+        return file_name
+
     except Exception as e:
-        error_msg = str(e)
-        if len(error_msg) > 300:
-            error_msg = error_msg[:300] + "... (truncated)"
-        raise Exception(f"Error downloading audio: {error_msg}")
+        raise Exception(f"Error downloading audio: {e}")
